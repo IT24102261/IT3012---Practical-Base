@@ -1,4 +1,3 @@
-# visual_grid_game.py
 import random
 import tkinter as tk
 
@@ -17,13 +16,17 @@ class VisualGridHuntGame:
             # Generate some default scattered walls for a larger grid
             self.walls = {(2, 2), (2, 3), (5, 5), (6, 5), (3, 7)}
 
-        # Dynamically generate random food positions avoiding walls and agent start
+        # Step 2.1: Extend Environment Initialization by adding toxic traps
+        # Traps placed avoiding starting position (0,0), walls, and food positions
+        self.toxic_traps = {(1, 4), (4, 2), (7, 6), (8, 3)}
+
+        # Dynamically generate random food positions avoiding walls, agent start, and traps
         self.food_positions = set()
         while len(self.food_positions) < num_food:
             fx = random.randint(0, self.width - 1)
             fy = random.randint(0, self.height - 1)
             pos_tuple = (fx, fy)
-            if pos_tuple != (0, 0) and pos_tuple not in self.walls:
+            if pos_tuple != (0, 0) and pos_tuple not in self.walls and pos_tuple not in self.toxic_traps:
                 self.food_positions.add(pos_tuple)
 
         # Generate adversarial opponents
@@ -32,7 +35,12 @@ class VisualGridHuntGame:
             ox = random.randint(0, self.width - 1)
             oy = random.randint(0, self.height - 1)
             op_pos = [ox, oy]
-            if tuple(op_pos) != (0, 0) and tuple(op_pos) not in self.walls and tuple(op_pos) not in self.food_positions:
+            if (
+                tuple(op_pos) != (0, 0)
+                and tuple(op_pos) not in self.walls
+                and tuple(op_pos) not in self.food_positions
+                and tuple(op_pos) not in self.toxic_traps
+            ):
                 self.opponents.append(op_pos)
 
         self.score = 0
@@ -40,10 +48,12 @@ class VisualGridHuntGame:
         self.collision = False
 
     def get_percept(self) -> dict:
+        # Step 2.2: Add 'smells_toxin' key to sensor dictionary
         return {
             'agent_pos': list(self.agent_pos),
             'opponent_positions': [list(op) for op in self.opponents],
             'smells_food': tuple(self.agent_pos) in self.food_positions,
+            'smells_toxin': tuple(self.agent_pos) in self.toxic_traps,  # NEW PERCEPT
             'hit_wall': tuple(self.agent_pos) in self.walls,
             'collision': self.collision,
             'score': self.score,
@@ -68,7 +78,11 @@ class VisualGridHuntGame:
         else:
             self.agent_pos = new_pos
 
+        # Step 2.3: Check if updated position intersects with toxic_traps and deduct 15 points
         tuple_pos = tuple(self.agent_pos)
+        if tuple_pos in self.toxic_traps:
+            self.score -= 15
+
         if tuple_pos in self.food_positions:
             self.food_positions.remove(tuple_pos)
             self.score += 20
@@ -102,7 +116,6 @@ class GridGameGUI:
         self.env = VisualGridHuntGame(width=width, height=height, num_food=num_food, num_opponents=num_opponents,
                                       custom_walls=walls)
 
-        # Dynamically calculate cell size so the total canvas fits nicely within a 600x600 window ceiling
         max_canvas_dim = 600
         self.cell_size = max(20, min(max_canvas_dim // self.env.width, max_canvas_dim // self.env.height))
 
@@ -134,10 +147,21 @@ class GridGameGUI:
                 color = "#f1f5f9" if (x, y) not in self.env.walls else "#64748b"
                 self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="#cbd5e1")
 
-                # Only draw text if cell is large enough
                 if self.cell_size >= 40 and (x, y) in self.env.walls:
                     self.canvas.create_text(x1 + self.cell_size / 2, y1 + self.cell_size / 2, text="W", fill="white",
                                             font=("Arial", 8, "bold"))
+
+        # Step 2.3: Render custom purple shapes on the canvas for toxic traps
+        for tx, ty in self.env.toxic_traps:
+            offset = self.cell_size * 0.2
+            x1 = tx * self.cell_size + offset
+            y1 = (self.env.height - 1 - ty) * self.cell_size + offset
+            x2 = x1 + self.cell_size * 0.6
+            y2 = y1 + self.cell_size * 0.6
+            # Purple diamond shape for toxic traps
+            mid_x = (x1 + x2) / 2
+            mid_y = (y1 + y2) / 2
+            self.canvas.create_polygon(mid_x, y1, x2, mid_y, mid_x, y2, x1, mid_y, fill="#8b5cf6", outline="#6d28d9")
 
         for fx, fy in self.env.food_positions:
             offset = self.cell_size * 0.25
@@ -169,7 +193,12 @@ class GridGameGUI:
                 self.env.execute_action(action)
 
                 self.draw_grid()
-                self.label.config(text=f"Score: {self.env.score} | Steps: {self.env.steps} | Action: {action}")
+                
+                # Retrieve updated percept sequence
+                percepts = self.env.get_percept()
+                smell_status = " [TOXIN DETECTED!]" if percepts['smells_toxin'] else ""
+                
+                self.label.config(text=f"Score: {self.env.score} | Steps: {self.env.steps} | Action: {action}{smell_status}")
                 self.root.after(250, step)
             else:
                 end_text = f"Collision! Game Over! Final Score: {self.env.score}" if self.env.collision else f"Finished! Final Score: {self.env.score}"
@@ -181,6 +210,5 @@ class GridGameGUI:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    # Try a larger grid size like 12x12 with 15 food and 3 opponents!
-    app = GridGameGUI(root, width=12, height=12, num_food=15, num_opponents=0)
+    app = GridGameGUI(root, width=12, height=12, num_food=15, num_opponents=2)
     root.mainloop()
