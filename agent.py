@@ -24,11 +24,12 @@ class SimpleReflexAgent:
 class ModelBasedAgent:
     """
     A Model-Based Agent.
-    Keeps internal memory of visited cells and an internal direction model so it can avoid looping.
+    Stores internal memory of visited cells and recent decisions so it can notice loops.
     """
 
     def __init__(self):
         self.last_action = None
+        self.last_percept = {}
         self.position = (0, 0)
         self.direction = "Up"
         self.visited = {(0, 0)}
@@ -55,6 +56,9 @@ class ModelBasedAgent:
         return pos
 
     def sense_and_act(self, percept):
+        # Update internal state before choosing a rule-based action.
+        self.last_percept = dict(percept)
+
         if self.last_action in {"Up", "Down", "Left", "Right"}:
             self.position = self._step(self.position, self.last_action)
             self.visited.add(self.position)
@@ -64,18 +68,28 @@ class ModelBasedAgent:
             return "EAT"
 
         if percept.get("wall_ahead"):
-            for turn in ["Left", "Right"]:
-                candidate_dir = self._turn(self.direction, turn)
-                candidate_pos = self._step(self.position, candidate_dir)
-                if candidate_pos not in self.visited:
-                    self.direction = candidate_dir
-                    self.last_action = candidate_dir
-                    return candidate_dir
+            left_dir = self._turn(self.direction, "Left")
+            right_dir = self._turn(self.direction, "Right")
 
+            # IF wall_ahead AND left_is_unvisited THEN turn_left
+            if self._step(self.position, left_dir) not in self.visited:
+                self.direction = left_dir
+                self.last_action = left_dir
+                return left_dir
+
+            # IF wall_ahead AND left_is_visited AND right_is_unvisited THEN turn_right
+            if self._step(self.position, right_dir) not in self.visited:
+                self.direction = right_dir
+                self.last_action = right_dir
+                return right_dir
+
+            # IF wall_ahead AND both sides are visited -> take a fallback turn to break the loop
             fallback = self._turn(self.direction, "Left")
             self.direction = fallback
             self.last_action = fallback
             return fallback
 
+        # ELSE continue moving in the current direction.
+        self.direction = self.direction
         self.last_action = self.direction
         return self.direction

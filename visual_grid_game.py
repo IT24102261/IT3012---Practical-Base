@@ -64,9 +64,8 @@ class VisualGridHuntGame:
         )
 
         return {
-            "food_here": front in self.food_positions,
             "wall_ahead": wall_ahead,
-            "smells_toxin": (x, y) in self.toxic_traps,
+            "food_here": front in self.food_positions,
         }
 
     def execute_action(self, action: str):
