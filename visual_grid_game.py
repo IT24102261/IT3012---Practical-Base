@@ -1,5 +1,6 @@
 import random
 import tkinter as tk
+from agent import SimpleReflexAgent
 
 
 class VisualGridHuntGame:
@@ -8,19 +9,15 @@ class VisualGridHuntGame:
     def __init__(self, width=10, height=10, num_food=10, num_opponents=2, custom_walls=None):
         self.width = width
         self.height = height
-        self.agent_pos = [0, 0]  # Starting position (x, y)
+        self.agent_pos = [0, 0]
 
         if custom_walls is not None:
             self.walls = set(custom_walls)
         else:
-            # Generate some default scattered walls for a larger grid
             self.walls = {(2, 2), (2, 3), (5, 5), (6, 5), (3, 7)}
 
-        # Step 2.1: Extend Environment Initialization by adding toxic traps
-        # Traps placed avoiding starting position (0,0), walls, and food positions
         self.toxic_traps = {(1, 4), (4, 2), (7, 6), (8, 3)}
 
-        # Dynamically generate random food positions avoiding walls, agent start, and traps
         self.food_positions = set()
         while len(self.food_positions) < num_food:
             fx = random.randint(0, self.width - 1)
@@ -29,7 +26,6 @@ class VisualGridHuntGame:
             if pos_tuple != (0, 0) and pos_tuple not in self.walls and pos_tuple not in self.toxic_traps:
                 self.food_positions.add(pos_tuple)
 
-        # Generate adversarial opponents
         self.opponents = []
         while len(self.opponents) < num_opponents:
             ox = random.randint(0, self.width - 1)
@@ -46,23 +42,45 @@ class VisualGridHuntGame:
         self.score = 0
         self.steps = 0
         self.collision = False
+        self.facing = "Up"
 
-    def get_percept(self) -> dict:
-        # Step 2.2: Add 'smells_toxin' key to sensor dictionary
+    def get_percept(self):
+        x, y = self.agent_pos
+        direction_map = {
+            "Up": (0, 1),
+            "Down": (0, -1),
+            "Left": (-1, 0),
+            "Right": (1, 0),
+        }
+        dx, dy = direction_map.get(self.facing, (0, 1))
+        front = (x + dx, y + dy)
+
+        wall_ahead = (
+            front[0] < 0
+            or front[0] >= self.width
+            or front[1] < 0
+            or front[1] >= self.height
+            or front in self.walls
+        )
+
         return {
-            'agent_pos': list(self.agent_pos),
-            'opponent_positions': [list(op) for op in self.opponents],
-            'smells_food': tuple(self.agent_pos) in self.food_positions,
-            'smells_toxin': tuple(self.agent_pos) in self.toxic_traps,  # NEW PERCEPT
-            'hit_wall': tuple(self.agent_pos) in self.walls,
-            'collision': self.collision,
-            'score': self.score,
-            'remaining_food': len(self.food_positions)
+            "food_here": front in self.food_positions,
+            "wall_ahead": wall_ahead,
+            "smells_toxin": (x, y) in self.toxic_traps,
         }
 
     def execute_action(self, action: str):
         self.steps += 1
+        if action in {"Up", "Down", "Left", "Right"}:
+            self.facing = action
+
         new_pos = list(self.agent_pos)
+
+        if action == "EAT":
+            if tuple(self.agent_pos) in self.food_positions:
+                self.food_positions.remove(tuple(self.agent_pos))
+                self.score += 20
+            return
 
         if action == 'Up':
             new_pos[1] = min(self.height - 1, new_pos[1] + 1)
@@ -75,10 +93,10 @@ class VisualGridHuntGame:
 
         if tuple(new_pos) in self.walls:
             self.score -= 5
-        else:
-            self.agent_pos = new_pos
+            return
 
-        # Step 2.3: Check if updated position intersects with toxic_traps and deduct 15 points
+        self.agent_pos = new_pos
+
         tuple_pos = tuple(self.agent_pos)
         if tuple_pos in self.toxic_traps:
             self.score -= 15
@@ -113,8 +131,14 @@ class GridGameGUI:
         self.root = root
         self.root.title("IT3012 - Scalable Multi-Agent Grid Hunt")
 
-        self.env = VisualGridHuntGame(width=width, height=height, num_food=num_food, num_opponents=num_opponents,
-                                      custom_walls=walls)
+        self.env = VisualGridHuntGame(
+            width=width,
+            height=height,
+            num_food=num_food,
+            num_opponents=num_opponents,
+            custom_walls=walls,
+        )
+        self.agent = SimpleReflexAgent()
 
         max_canvas_dim = 600
         self.cell_size = max(20, min(max_canvas_dim // self.env.width, max_canvas_dim // self.env.height))
@@ -128,8 +152,14 @@ class GridGameGUI:
         self.label = tk.Label(root, text="Score: 0 | Steps: 0", font=("Arial", 14))
         self.label.pack(pady=10)
 
-        self.btn = tk.Button(root, text="Start Simulation", command=self.run_loop, font=("Arial", 12), bg="#000066",
-                             fg="white")
+        self.btn = tk.Button(
+            root,
+            text="Start Simulation",
+            command=self.run_loop,
+            font=("Arial", 12),
+            bg="#000066",
+            fg="white",
+        )
         self.btn.pack(pady=5)
 
         self.draw_grid()
@@ -148,17 +178,20 @@ class GridGameGUI:
                 self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="#cbd5e1")
 
                 if self.cell_size >= 40 and (x, y) in self.env.walls:
-                    self.canvas.create_text(x1 + self.cell_size / 2, y1 + self.cell_size / 2, text="W", fill="white",
-                                            font=("Arial", 8, "bold"))
+                    self.canvas.create_text(
+                        x1 + self.cell_size / 2,
+                        y1 + self.cell_size / 2,
+                        text="W",
+                        fill="white",
+                        font=("Arial", 8, "bold"),
+                    )
 
-        # Step 2.3: Render custom purple shapes on the canvas for toxic traps
         for tx, ty in self.env.toxic_traps:
             offset = self.cell_size * 0.2
             x1 = tx * self.cell_size + offset
             y1 = (self.env.height - 1 - ty) * self.cell_size + offset
             x2 = x1 + self.cell_size * 0.6
             y2 = y1 + self.cell_size * 0.6
-            # Purple diamond shape for toxic traps
             mid_x = (x1 + x2) / 2
             mid_y = (y1 + y2) / 2
             self.canvas.create_polygon(mid_x, y1, x2, mid_y, mid_x, y2, x1, mid_y, fill="#8b5cf6", outline="#6d28d9")
@@ -167,41 +200,40 @@ class GridGameGUI:
             offset = self.cell_size * 0.25
             x1 = fx * self.cell_size + offset
             y1 = (self.env.height - 1 - fy) * self.cell_size + offset
-            self.canvas.create_oval(x1, y1, x1 + self.cell_size * 0.5, y1 + self.cell_size * 0.5, fill="#f59e0b",
-                                    outline="#d97706")
+            self.canvas.create_oval(x1, y1, x1 + self.cell_size * 0.5, y1 + self.cell_size * 0.5, fill="#f59e0b", outline="#d97706")
 
         for ox, oy in self.env.opponents:
             offset = self.cell_size * 0.2
             x1 = ox * self.cell_size + offset
             y1 = (self.env.height - 1 - oy) * self.cell_size + offset
-            self.canvas.create_rectangle(x1, y1, x1 + self.cell_size * 0.6, y1 + self.cell_size * 0.6, fill="#990000",
-                                         outline="#7a0000")
+            self.canvas.create_rectangle(x1, y1, x1 + self.cell_size * 0.6, y1 + self.cell_size * 0.6, fill="#990000", outline="#7a0000")
 
         ax, ay = self.env.agent_pos
         offset = self.cell_size * 0.15
         x1 = ax * self.cell_size + offset
         y1 = (self.env.height - 1 - ay) * self.cell_size + offset
-        self.canvas.create_oval(x1, y1, x1 + self.cell_size * 0.7, y1 + self.cell_size * 0.7, fill="#000066",
-                                outline="#1e3a8a")
+        self.canvas.create_oval(x1, y1, x1 + self.cell_size * 0.7, y1 + self.cell_size * 0.7, fill="#000066", outline="#1e3a8a")
 
     def run_loop(self):
         self.btn.config(state="disabled")
 
         def step():
             if not self.env.is_done():
-                action = random.choice(['Up', 'Down', 'Left', 'Right'])
+                percept = self.env.get_percept()
+                action = self.agent.sense_and_act(percept)
                 self.env.execute_action(action)
-
                 self.draw_grid()
-                
-                # Retrieve updated percept sequence
+
                 percepts = self.env.get_percept()
-                smell_status = " [TOXIN DETECTED!]" if percepts['smells_toxin'] else ""
-                
+                smell_status = " [TOXIN DETECTED!]" if percepts.get("smells_toxin", False) else ""
                 self.label.config(text=f"Score: {self.env.score} | Steps: {self.env.steps} | Action: {action}{smell_status}")
                 self.root.after(250, step)
             else:
-                end_text = f"Collision! Game Over! Final Score: {self.env.score}" if self.env.collision else f"Finished! Final Score: {self.env.score}"
+                end_text = (
+                    f"Collision! Game Over! Final Score: {self.env.score}"
+                    if self.env.collision
+                    else f"Finished! Final Score: {self.env.score}"
+                )
                 self.label.config(text=end_text)
                 self.btn.config(state="normal")
 

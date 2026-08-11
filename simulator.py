@@ -1,19 +1,30 @@
 # simulator.py
-from grid_game import GridHuntGame
-from agent import GreedyGridAgent
+from visual_grid_game import VisualGridHuntGame
+from agent import ModelBasedAgent
+
 
 def run_grid_hunt():
-    env = GridHuntGame()
-    agent = GreedyGridAgent()
+    env = VisualGridHuntGame(
+        width=6,
+        height=6,
+        num_food=2,
+        num_opponents=0,
+        custom_walls={(1, 0), (1, 1), (1, 2), (2, 2), (3, 2), (4, 2)},
+    )
+    agent = ModelBasedAgent()
 
-    print("=== UC Berkeley Style Small Grid Hunt Started ===")
-    while not env.is_done():
-        percept = env.get_percept(agent)
+    print("=== Model-Based Agent Simulation ===")
+    for step in range(30):
+        percept = env.get_percept()
         action = agent.sense_and_act(percept)
-        env.execute_action(agent, action)
-        print(f"Pos: {percept['agent_pos']} | Food Left: {percept['remaining_food']} | Score: {percept['score']}")
+        print(f"Step {step + 1}: pos={env.agent_pos}, facing={env.facing}, percept={percept}, action={action}")
+        env.execute_action(action)
 
-    print(f"\nGame Over! Final Score: {env.score} after {env.steps} steps.")
+        if env.is_done():
+            break
+
+    print(f"\nFinal Score: {env.score} | Steps: {env.steps}")
+
 
 if __name__ == "__main__":
     run_grid_hunt()
